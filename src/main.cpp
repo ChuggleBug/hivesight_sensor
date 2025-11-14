@@ -40,7 +40,7 @@ void setup() {
 
   Serial.println("Configuring mqtt...");
   mqttClient.setServer(brokerIP, brokerPort);
-  mqttClient.connect(prefs.getString("device_name").c_str());
+  mqttClient.connect(deviceName.c_str());
   Serial.println("Connected to broker!");
 
   // Bit of a cheat, but creates a task which is responsible 
@@ -57,7 +57,7 @@ void loop() {
   mqttClient.loop();
   
   if (!mqttClient.connected()) {
-    mqttClient.connect(prefs.getString("device_name").c_str());
+    mqttClient.connect(deviceName.c_str());
     Serial.println("Reconnected to broker!");
   }
 
