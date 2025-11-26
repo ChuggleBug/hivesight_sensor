@@ -3,11 +3,11 @@
 
 // Assigned pin to trigger a software reset
 // as well as a wifi manager config reset
-#define CONFIG_WIFI_RST_PIN_NO  (33)
+#define CONFIG_WIFI_RST_PIN_NO  (5)
 
 // Assigned pin to trigger sending a
 // mqtt message
-#define CONFIG_APP_SENSOR_PIN_NO (32)
+#define CONFIG_APP_SENSOR_PIN_NO (21)
 
 // Port for broker
 #define BROKER_PORT             (1883)
