@@ -5,6 +5,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <LittleFS.h>
 
 #include "time.h"
 
@@ -12,22 +13,23 @@
 #include "esp_attr.h"
 
 #include "main.h"
-#include "wifi_man.h"
 
 // main.h extern defined variables
-const uint16_t brokerPort = BROKER_PORT;
-const uint16_t httpPort = COORDINATOR_HTTP_PORT;
-Preferences prefs;
+String deviceName;
+IPAddress brokerIP;
+uint16_t brokerPort;
+IPAddress coordinatorIP;
+uint16_t coordinatorPort;
 
-// Application specific objects
-// (exclusive to this file)
+
 WiFiClient netif;
 WiFiUDP netifUDP;
+
 PubSubClient mqttClient(netif);
 NTPClient timeClient(netifUDP);
 HTTPClient http;
+
 TaskHandle_t mqttNotifTask;
-bool wifi_man_complete = false;
 
 
 // Functions
@@ -42,16 +44,16 @@ void mqtt_notif_loop(void* args);
 
 void setup() {
   Serial.begin(BAUD_RATE);
-  prefs.begin("app");
+
+
+  vTaskSuspend( NULL );
 
   // Enable wifi manager reset pin
   pinMode(CONFIG_WIFI_RST_PIN_NO, INPUT_PULLDOWN);
   attachInterrupt(digitalPinToInterrupt(CONFIG_WIFI_RST_PIN_NO),
                   reset_wifi_man_configs, RISING);
 
-  wifi_man_svc_start();
-  wifi_man_complete = true;
-
+  
   Serial.println("Configuring mqtt...");
   mqttClient.setServer(coordinatorIP, brokerPort);
   mqttClient.connect(deviceName.c_str());
@@ -117,9 +119,6 @@ void IRAM_ATTR mqtt_svc_signal_event() {
 void IRAM_ATTR reset_wifi_man_configs() {
   Serial.println("Resetting preferences and core...");
   Serial.flush();
-  if (wifi_man_complete) {
-    wifi_man_reset();
-  }
   ESP.restart();
 }
 
@@ -133,8 +132,8 @@ void coordinator_register_device() {
   json["type"] = "sensor";
 
   Serial.println(coordinatorIP.toString());
-  Serial.println(httpPort);
-  http.begin(coordinatorIP.toString(), httpPort, "/api/device/register");
+  Serial.println(coordinatorPort);
+  http.begin(coordinatorIP.toString(), coordinatorPort, "/api/device/register");
   http.addHeader("Content-Type", "application/json");
   serializeJson(json, buf);
   resp_code = http.PUT(buf);

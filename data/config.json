@@ -1,0 +1,11 @@
+{
+    "DeviceName": "fence",
+    "MQTT": {
+        "BrokerIP": "10.11.58.61",
+        "BrokerPort": 1883
+    },
+    "HTTP": {
+        "CoordinatorIP": "10.11.58.61",
+        "CoordinatorPort": 3030
+    }
+}
