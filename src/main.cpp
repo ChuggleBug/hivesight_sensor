@@ -31,6 +31,7 @@ HTTPClient http;
 
 TaskHandle_t mqttNotifTask;
 
+#define panic(fmt, ...) do { Serial.printf(fmt, ##__VA_ARGS__); Serial.println(); vTaskSuspend( NULL ); } while (0)
 
 // Functions
 void coordinator_register_device();
@@ -45,6 +46,19 @@ void mqtt_notif_loop(void* args);
 void setup() {
   Serial.begin(BAUD_RATE);
 
+  if (!LittleFS.begin()) {
+    panic("Failed to init filesystem");
+  }
+
+  ArduinoJson::JsonDocument json;
+  fs::File file = LittleFS.open("/config.json");
+  char buf[1024];
+  memset(buf, 0, 1024);
+  file.readBytes(buf, 1023);
+  deserializeJson(json, buf);
+
+  String deviceName = json["DeviceName"];
+  Serial.println(deviceName);
 
   vTaskSuspend( NULL );
 
