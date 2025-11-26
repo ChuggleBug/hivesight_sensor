@@ -76,8 +76,12 @@ void loop() {
   timeClient.update();
 
   if (!mqttClient.connected()) {
-    mqttClient.connect(deviceName.c_str());
-    Serial.println("Reconnected to broker!");
+    Serial.println("Lost connection to broker");
+    if (mqttClient.connect(deviceName.c_str())) {
+      Serial.println("Reconnected to broker!");
+    } else {
+      Serial.println("Failed to reconnect...");
+    }
   }
 
   delay(5000);
