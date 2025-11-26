@@ -7,6 +7,8 @@
 
 #include "app_config.h"
 
+#define DEVICE_TYPE     "sensor"
+
 /**
  * @brief Name of the deivce. This name will be used
  * inside of the network

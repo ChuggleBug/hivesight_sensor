@@ -7,20 +7,30 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-#include "time.h"
-
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
-
 #include "main.h"
+#include "time.h"
 
-// main.h extern defined variables
-String deviceName = "Uknown";
-IPAddress brokerIP = IPAddress(0, 0, 0, 0);
-uint16_t brokerPort = 0;
-IPAddress coordinatorIP = IPAddress(0, 0, 0, 0);
-;
-uint16_t coordinatorPort = 0;
+// === Macros ===
+#define JSON_MAX_SIZE 1024
+#define panic(fmt, ...)                                                        \
+  do {                                                                         \
+    Serial.printf(fmt, ##__VA_ARGS__);                                         \
+    Serial.println();                                                          \
+    vTaskSuspend(NULL);                                                        \
+  } while (0)
+
+// === Externally Defined Variables ===
+String deviceName;
+IPAddress brokerIP;
+uint16_t brokerPort;
+IPAddress coordinatorIP;
+uint16_t coordinatorPort;
+
+// === Static / Local Variables ===
+static String wifiSSID;
+static String wifiPass;
 
 WiFiClient netif;
 WiFiUDP netifUDP;
@@ -31,26 +41,16 @@ HTTPClient http;
 
 TaskHandle_t mqttNotifTask;
 
-#define panic(fmt, ...)                                                        \
-  do {                                                                         \
-    Serial.printf(fmt, ##__VA_ARGS__);                                         \
-    Serial.println();                                                          \
-    vTaskSuspend(NULL);                                                        \
-  } while (0)
-
-// Functions
+// === Function Declarations ===
 bool load_device_configs();
 void coordinator_register_device();
 
-// Interrupts
 void IRAM_ATTR mqtt_svc_signal_event();
-void IRAM_ATTR reset_wifi_man_configs();
-
-// Additional Tasks (created with FreeRTOS)
 void mqtt_notif_loop(void *args);
 
+// === Code Begin ===
 void setup() {
-  Serial.begin(BAUD_RATE);
+  Serial.begin(CONFIG_BAUD_RATE);
 
   if (!LittleFS.begin()) {
     panic("Failed to init filesystem");
@@ -60,24 +60,39 @@ void setup() {
     panic("Failed to load configurations");
   }
 
-  Serial.println("");
+  Serial.println();
   Serial.println("Configurations");
-  Serial.print("Device Name:      "); Serial.println(deviceName);
-  Serial.print("Broker IP:        "); Serial.println(brokerIP);
-  Serial.print("Broker Port:      "); Serial.println(brokerPort);
-  Serial.print("Coordinator IP:   "); Serial.println(coordinatorIP);
-  Serial.print("Coordinator Port: "); Serial.println(coordinatorPort);
+  Serial.print("Wifi SSID:        ");
+  Serial.println(wifiSSID);
+  Serial.print("Wifi password:    ");
+  for (char c : wifiPass) {
+    Serial.print('*');
+  }
+  Serial.println();
+  Serial.print("Device Name:      ");
+  Serial.println(deviceName);
+  Serial.print("Broker IP:        ");
+  Serial.println(brokerIP);
+  Serial.print("Broker Port:      ");
+  Serial.println(brokerPort);
+  Serial.print("Coordinator IP:   ");
+  Serial.println(coordinatorIP);
+  Serial.print("Coordinator Port: ");
+  Serial.println(coordinatorPort);
+  Serial.println();
 
+  Serial.print("Connecting to network over Wi-Fi");
+  WiFi.begin(wifiSSID, wifiPass);
+  while (!WiFi.isConnected()) {
+    Serial.print('.');
+    delay(100);
+  }
+  Serial.println();
 
-  vTaskSuspend(NULL);
-
-  // Enable wifi manager reset pin
-  pinMode(CONFIG_WIFI_RST_PIN_NO, INPUT_PULLDOWN);
-  attachInterrupt(digitalPinToInterrupt(CONFIG_WIFI_RST_PIN_NO),
-                  reset_wifi_man_configs, RISING);
+  Serial.println("Connected!");
 
   Serial.println("Configuring mqtt...");
-  mqttClient.setServer(coordinatorIP, brokerPort);
+  mqttClient.setServer(brokerIP, brokerPort);
   mqttClient.connect(deviceName.c_str());
   Serial.println("Connected to broker!");
 
@@ -85,12 +100,9 @@ void setup() {
 
   coordinator_register_device();
 
-  // Bit of a cheat, but creates a task which is responsible
-  // for publishing the message to a broker
   xTaskCreate(mqtt_notif_loop, "MQTT Notif Loop", 4096, NULL, 5,
               &mqttNotifTask);
 
-  // Enable interrupt which indicates that a message should be published
   pinMode(CONFIG_APP_SENSOR_PIN_NO, INPUT_PULLDOWN);
   attachInterrupt(digitalPinToInterrupt(CONFIG_APP_SENSOR_PIN_NO),
                   mqtt_svc_signal_event, RISING);
@@ -112,16 +124,74 @@ void loop() {
   delay(5000);
 }
 
+void coordinator_register_device() {
+  ArduinoJson::JsonDocument json;
+  int resp_code;
+  static char buf[256];
+  memset(buf, 0, 256);
+
+  json["name"] = deviceName;
+  json["type"] = DEVICE_TYPE;
+
+  http.begin(coordinatorIP.toString(), coordinatorPort, "/api/device/register");
+  http.addHeader("Content-Type", "application/json");
+  serializeJson(json, buf);
+  resp_code = http.PUT(buf);
+
+  Serial.printf("HTTP Response: %d", resp_code);
+  Serial.println();
+}
+
+bool load_device_configs() {
+  ArduinoJson::JsonDocument json;
+  static char buf[JSON_MAX_SIZE];
+
+  fs::File file = LittleFS.open("/config.json");
+  if (!file) {
+    return false;
+  }
+
+  memset(buf, 0, JSON_MAX_SIZE);
+  file.readBytes(buf, JSON_MAX_SIZE - 1);
+  if (deserializeJson(json, buf) != DeserializationError::Ok) {
+    return false;
+  }
+
+  // Error checking
+  if (!json["WiFiSSID"].is<const char *>() ||
+      !json["WiFiPassword"].is<const char *>() ||
+      !json["DeviceName"].is<const char *>() ||
+      !json["MQTT"]["IP"].is<const char *>() ||
+      !json["MQTT"]["Port"].is<uint16_t>() ||
+      !json["HTTP"]["IP"].is<const char *>() ||
+      !json["HTTP"]["Port"].is<uint16_t>()) {
+    return false;
+  }
+
+  wifiSSID = json["WiFiSSID"].as<String>();
+  wifiPass = json["WiFiPassword"].as<String>();
+
+  deviceName = json["DeviceName"].as<String>();
+
+  brokerIP.fromString((json["MQTT"]["IP"].as<const char *>()));
+  brokerPort = json["MQTT"]["Port"].as<uint16_t>();
+
+  coordinatorIP.fromString((json["HTTP"]["IP"].as<const char *>()));
+  coordinatorPort = json["HTTP"]["Port"].as<uint16_t>();
+
+  return true;
+}
+
 void mqtt_notif_loop(void *args) {
+  // This task will block until something else notifies it
   String topic = "sensor/" + deviceName;
   ArduinoJson::JsonDocument json;
   static char buf[512];
   memset(buf, 0, 512);
   while (1) {
-    // This task will block until something else notifies it
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    // Report the time of event and send a json
+    // Report the time of event and send a JSON
     json["time"] = timeClient.getEpochTime();
     serializeJson(json, buf);
 
@@ -137,61 +207,4 @@ void IRAM_ATTR mqtt_svc_signal_event() {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   vTaskNotifyGiveFromISR(mqttNotifTask, &xHigherPriorityTaskWoken);
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-}
-
-void IRAM_ATTR reset_wifi_man_configs() {
-  Serial.println("Resetting preferences and core...");
-  Serial.flush();
-  ESP.restart();
-}
-
-void coordinator_register_device() {
-  ArduinoJson::JsonDocument json;
-  int resp_code;
-  static char buf[256];
-  memset(buf, 0, 256);
-
-  json["name"] = deviceName;
-  json["type"] = "sensor";
-
-  Serial.println(coordinatorIP.toString());
-  Serial.println(coordinatorPort);
-  http.begin(coordinatorIP.toString(), coordinatorPort, "/api/device/register");
-  http.addHeader("Content-Type", "application/json");
-  serializeJson(json, buf);
-  resp_code = http.PUT(buf);
-
-  Serial.printf("HTTP Response: %d", resp_code);
-  Serial.println();
-}
-
-bool load_device_configs() {
-  ArduinoJson::JsonDocument json;
-  fs::File file = LittleFS.open("/config.json");
-  char buf[1024];
-  memset(buf, 0, 1024);
-  file.readBytes(buf, 1023);
-  if (deserializeJson(json, buf) != DeserializationError::Ok) {
-    return false;
-  }
-
-  // Error checking
-  if (!json["DeviceName"].is<const char *>() ||
-      !json["MQTT"]["IP"].is<const char *>() ||
-      !json["MQTT"]["Port"].is<int>() ||
-      !json["HTTP"]["IP"].is<const char *>() ||
-      !json["HTTP"]["Port"].is<int>()) {
-    return false;
-  }
-
-
-  deviceName = json["DeviceName"].as<String>();
-
-  brokerIP.fromString((json["MQTT"]["IP"].as<const char *>()));
-  brokerPort = json["MQTT"]["Port"].as<uint16_t>();
-  
-  coordinatorIP.fromString((json["HTTP"]["IP"].as<const char *>()));
-  coordinatorPort = json["HTTP"]["Port"].as<uint16_t>();
-
-  return true;
 }
