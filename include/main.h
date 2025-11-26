@@ -9,8 +9,9 @@
 
 // Destination of MQTT Broker
 // IP adress to be configured via WiFi Manager
-extern IPAddress brokerIP;
+extern IPAddress coordinatorIP;
 extern const uint16_t brokerPort;
+extern const uint16_t httpPort;
 
 // Name of the sensor defiend with WiFi Manager
 // Will be used when publishing a topic

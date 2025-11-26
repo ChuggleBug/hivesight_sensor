@@ -5,7 +5,7 @@
 #include "main.h"
 
 // main.h extern defined variables
-IPAddress brokerIP;
+IPAddress coordinatorIP;
 String deviceName;
 
 // Application specific objects
@@ -63,7 +63,7 @@ void wifi_man_svc_start() {
   // If the value was properly parses, it will be overwritten
   // with the same value
   has_appconfs = prefs.isKey("device_name") && prefs.isKey("host_ip") &&
-                 brokerIP.fromString(prefs.getString("host_ip"));
+                 coordinatorIP.fromString(prefs.getString("host_ip"));
 
   // Start portal if not all configs are present
   if (!(autoconn && has_appconfs)) {
