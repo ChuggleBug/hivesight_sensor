@@ -103,8 +103,8 @@ void setup() {
   xTaskCreate(mqtt_notif_loop, "MQTT Notif Loop", 4096, NULL, 5,
               &mqttNotifTask);
 
-  pinMode(CONFIG_APP_SENSOR_PIN_NO, INPUT_PULLDOWN);
-  attachInterrupt(digitalPinToInterrupt(CONFIG_APP_SENSOR_PIN_NO),
+  pinMode(APP_SENSOR_PIN_NO, INPUT_PULLDOWN);
+  attachInterrupt(digitalPinToInterrupt(APP_SENSOR_PIN_NO),
                   mqtt_svc_signal_event, RISING);
 }
 
