@@ -13,7 +13,7 @@
 #include "time.h"
 
 // === Macros ===
-#define JSON_MAX_SIZE 1024
+
 #define panic(fmt, ...)                                                        \
   do {                                                                         \
     Serial.printf(fmt, ##__VA_ARGS__);                                         \
@@ -21,16 +21,7 @@
     vTaskSuspend(NULL);                                                        \
   } while (0)
 
-// === Externally Defined Variables ===
-String deviceName;
-IPAddress brokerIP;
-uint16_t brokerPort;
-IPAddress coordinatorIP;
-uint16_t coordinatorPort;
-
 // === Static / Local Variables ===
-static String wifiSSID;
-static String wifiPass;
 
 WiFiClient netif;
 WiFiUDP netifUDP;
@@ -42,13 +33,15 @@ HTTPClient http;
 TaskHandle_t mqttNotifTask;
 
 // === Function Declarations ===
-bool load_device_configs();
+
 void coordinator_register_device();
+extern bool load_device_configs();
 
 void IRAM_ATTR mqtt_svc_signal_event();
 void mqtt_notif_loop(void *args);
 
 // === Code Begin ===
+
 void setup() {
   Serial.begin(CONFIG_BAUD_RATE);
 
@@ -91,6 +84,9 @@ void setup() {
 
   Serial.println("Connected!");
 
+  // Clear from memory
+  wifiPass.clear();
+
   Serial.println("Configuring mqtt...");
   mqttClient.setServer(brokerIP, brokerPort);
   mqttClient.connect(deviceName.c_str());
@@ -126,60 +122,25 @@ void loop() {
 
 void coordinator_register_device() {
   ArduinoJson::JsonDocument json;
-  int resp_code;
+  int resp_code = 0;
   static char buf[256];
   memset(buf, 0, 256);
-
+  
   json["name"] = deviceName;
   json["type"] = DEVICE_TYPE;
 
-  http.begin(coordinatorIP.toString(), coordinatorPort, "/api/device/register");
-  http.addHeader("Content-Type", "application/json");
-  serializeJson(json, buf);
-  resp_code = http.PUT(buf);
+  Serial.println("Registering devivce...");
+  while (resp_code != HTTP_CODE_NO_CONTENT) {
 
-  Serial.printf("HTTP Response: %d", resp_code);
-  Serial.println();
-}
-
-bool load_device_configs() {
-  ArduinoJson::JsonDocument json;
-  static char buf[JSON_MAX_SIZE];
-
-  fs::File file = LittleFS.open("/config.json");
-  if (!file) {
-    return false;
+    http.begin(coordinatorIP.toString(), coordinatorPort, "/api/device/register");
+    http.addHeader("Content-Type", "application/json");
+    serializeJson(json, buf);
+    resp_code = http.PUT(buf);
+    
+    Serial.printf("HTTP Response: %d", resp_code);
+    Serial.println();
+    http.end();
   }
-
-  memset(buf, 0, JSON_MAX_SIZE);
-  file.readBytes(buf, JSON_MAX_SIZE - 1);
-  if (deserializeJson(json, buf) != DeserializationError::Ok) {
-    return false;
-  }
-
-  // Error checking
-  if (!json["WiFiSSID"].is<const char *>() ||
-      !json["WiFiPassword"].is<const char *>() ||
-      !json["DeviceName"].is<const char *>() ||
-      !json["MQTT"]["IP"].is<const char *>() ||
-      !json["MQTT"]["Port"].is<uint16_t>() ||
-      !json["HTTP"]["IP"].is<const char *>() ||
-      !json["HTTP"]["Port"].is<uint16_t>()) {
-    return false;
-  }
-
-  wifiSSID = json["WiFiSSID"].as<String>();
-  wifiPass = json["WiFiPassword"].as<String>();
-
-  deviceName = json["DeviceName"].as<String>();
-
-  brokerIP.fromString((json["MQTT"]["IP"].as<const char *>()));
-  brokerPort = json["MQTT"]["Port"].as<uint16_t>();
-
-  coordinatorIP.fromString((json["HTTP"]["IP"].as<const char *>()));
-  coordinatorPort = json["HTTP"]["Port"].as<uint16_t>();
-
-  return true;
 }
 
 void mqtt_notif_loop(void *args) {

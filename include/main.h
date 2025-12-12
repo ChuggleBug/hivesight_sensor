@@ -2,12 +2,23 @@
 #define __MAIN_H
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <WiFi.h>
 
 #include "app_config.h"
 
 #define DEVICE_TYPE     "sensor"
+
+/**
+ * @brief Wi-Fi SSID to use when connecting to internet
+ * 
+ */
+extern String wifiSSID;
+
+/**
+ * @brief Wi-Fi password to use when connecting to internet
+ * @note This value gets cleared after connected to wifif
+ */
+extern String wifiPass;
 
 /**
  * @brief Name of the deivce. This name will be used
